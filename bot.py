@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 import os
 from collections import deque
 from yt_dlp import YoutubeDL, DownloadError
+from yt_dlp.extractor.instagram import InstagramIE
 
 from helper import answer_delete, create_keyboard
 
@@ -148,12 +149,20 @@ async def cmd_coding(message: types.Message):
     await message.answer("Choose an option:", reply_markup=keyboard)
 
 # ------- Youtube download --------
-async def try_download(url, ydl_opts, proxy=None):
+async def try_download(site_type, url, ydl_opts, proxy=None):
     if proxy:
         ydl_opts['proxy'] = proxy
-    with YoutubeDL(ydl_opts) as ydl:
-        info_dict = ydl.extract_info(url, download=True)
-        return ydl.prepare_filename(info_dict)
+
+    if site_type == 'youtube':
+        with YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=True)
+            return ydl.prepare_filename(info_dict)
+    elif site_type == 'instagram':
+        with InstagramIE(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=True)
+            return ydl.prepare_filename(info_dict)
+    else:
+        raise Exception('Type of site is unknown')
 
 @router.message(F.text.startswith("https://www.youtube.com") | F.text.startswith("https://youtube.com/shorts") | F.text.startswith("https://youtu.be"))
 async def handle_youtube_link(message: types.Message, state: FSMContext):
@@ -161,16 +170,29 @@ async def handle_youtube_link(message: types.Message, state: FSMContext):
     await state.set_data({"url": url})
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎵 Download Audio 📲", callback_data="download_audio")],
+        [InlineKeyboardButton(text="🎵 Download Audio 📲", callback_data="download_audio_youtube")],
         [InlineKeyboardButton(text="🎥 Download Video 📲", callback_data="choose_quality")]
     ])
 
     await message.reply("Choose option:", reply_markup=keyboard)
 
-@router.callback_query(lambda call: call.data == "download_audio")
+@router.message(F.text.startswith("https://www.instagram.com/") | F.text.startswith("https://www.instagram.com/reel") | F.text.startswith("https://www.instagram.com/stories"))
+async def handle_instagram_link(message: types.Message, state: FSMContext):
+    url = message.text
+    await state.set_data({"url": url})
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎵 Download Audio 📲", callback_data="download_audio_instagram")],
+        [InlineKeyboardButton(text="🎥 Download Video 📲", callback_data="download_video_instagram")]
+    ])
+
+    await message.reply("Choose option:", reply_markup=keyboard)
+
+@router.callback_query(lambda call: call.data == "download_audio_")
 async def download_audio(callback_query: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     url = data.get("url")
+    site_type = callback_query.data.split("_")[-1]
 
     await callback_query.message.edit_text(f"📲")
 
@@ -186,7 +208,7 @@ async def download_audio(callback_query: CallbackQuery, state: FSMContext):
 
     try:
 
-        audio_file = await try_download(url, ydl_opts)
+        audio_file = await try_download(site_type, url, ydl_opts, ydl_opts)
         await bot.send_audio(callback_query.from_user.id, types.FSInputFile(audio_file))
         os.remove(audio_file)
         await callback_query.message.edit_text("Sound has been successfully sent!")
@@ -194,7 +216,7 @@ async def download_audio(callback_query: CallbackQuery, state: FSMContext):
 
         proxy = 'https://135.148.100.78:48149'  
         try:
-            audio_file = await try_download(url, ydl_opts, proxy=proxy)
+            audio_file = await try_download(site_type, url, ydl_opts, proxy=proxy)
             await bot.send_audio(callback_query.from_user.id, types.FSInputFile(audio_file))
             os.remove(audio_file)
             await callback_query.message.edit_text("Sound has been successfully sent through proxy!")
@@ -206,9 +228,9 @@ async def download_audio(callback_query: CallbackQuery, state: FSMContext):
 @router.callback_query(lambda call: call.data == "choose_quality")
 async def choose_quality(callback_query: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="360p", callback_data="download_video_360p")],
-        [InlineKeyboardButton(text="720p", callback_data="download_video_720p")],
-        [InlineKeyboardButton(text="1080p", callback_data="download_video_1080p")]
+        [InlineKeyboardButton(text="360p", callback_data="download_video_youtube_360p")],
+        [InlineKeyboardButton(text="720p", callback_data="download_video_youtube_720p")],
+        [InlineKeyboardButton(text="1080p", callback_data="download_video_youtube_1080p")]
     ])
     await callback_query.message.edit_text("Select the video quality:", reply_markup=keyboard)
 
@@ -216,24 +238,38 @@ async def choose_quality(callback_query: CallbackQuery):
 async def download_video(callback_query: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     url = data.get("url")
-    quality = callback_query.data.split("_")[-1]
+    quality = ''
+
+    if len(callback_query.data.split("_")) > 3:
+        site_type = callback_query.data.split("_")[-2]
+        quality = callback_query.data.split("_")[-1]
+    else:
+        site_type = callback_query.data.split("_")[-1]
     
     await callback_query.message.edit_text(f"📲")
 
-    ydl_opts = {
-        'format': f'best[height<={quality}]',
-        'outtmpl': 'downloads/%(title)s.%(ext)s',
-    }
+    if site_type == 'youtube':
+        ydl_opts = {
+            'format': f'best[height<={quality}]',
+            'outtmpl': 'downloads/%(title)s.%(ext)s',
+        }
+    elif site_type == 'instagram':
+        ydl_opts = {
+            'format': 'bestvideo/best',
+            'outtmpl': 'downloads/%(title)s.%(ext)s',
+        }
+    else:
+        raise Exception('Type of site is unknown')
 
     try:
-        video_file = await try_download(url, ydl_opts)
+        video_file = await try_download(site_type, url, ydl_opts)
         await bot.send_video(callback_query.from_user.id, types.FSInputFile(video_file))
         os.remove(video_file)
         await callback_query.message.edit_text(f"Video {quality} sent successfully!")
     except DownloadError as e:
         proxy = 'https://47.251.43.115:33333'  
         try:
-            video_file = await try_download(url, ydl_opts, proxy=proxy)
+            video_file = await try_download(site_type, ydl_opts, proxy=proxy)
             await bot.send_video(callback_query.from_user.id, types.FSInputFile(video_file))
             os.remove(video_file)
             await callback_query.message.edit_text(f"Video {quality} sent successfully through proxy!")
