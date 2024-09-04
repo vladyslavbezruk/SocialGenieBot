@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 import os
 from collections import deque
 from yt_dlp import YoutubeDL, DownloadError
-from yt_dlp.extractor.instagram import InstagramIE
+from yt_dlp.extractor.instagram import InstagramIE, InstagramStoryIE
 
 from helper import answer_delete, create_keyboard
 
@@ -158,7 +158,7 @@ async def try_download(site_type, url, ydl_opts, proxy=None):
             info_dict = ydl.extract_info(url, download=True)
             return ydl.prepare_filename(info_dict)
     elif site_type == 'instagram':
-        with InstagramIE(ydl_opts) as ydl:
+        with YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=True)
             return ydl.prepare_filename(info_dict)
     else:
@@ -188,7 +188,7 @@ async def handle_instagram_link(message: types.Message, state: FSMContext):
 
     await message.reply("Choose option:", reply_markup=keyboard)
 
-@router.callback_query(lambda call: call.data == "download_audio_")
+@router.callback_query(lambda call: call.data.startswith("download_audio_"))
 async def download_audio(callback_query: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     url = data.get("url")
@@ -214,7 +214,7 @@ async def download_audio(callback_query: CallbackQuery, state: FSMContext):
         await callback_query.message.edit_text("Sound has been successfully sent!")
     except DownloadError as e:
 
-        proxy = 'https://135.148.100.78:48149'  
+        # proxy = 'https://135.148.100.78:48149'
         try:
             audio_file = await try_download(site_type, url, ydl_opts, proxy=proxy)
             await bot.send_audio(callback_query.from_user.id, types.FSInputFile(audio_file))
@@ -245,7 +245,7 @@ async def download_video(callback_query: CallbackQuery, state: FSMContext):
         quality = callback_query.data.split("_")[-1]
     else:
         site_type = callback_query.data.split("_")[-1]
-    
+
     await callback_query.message.edit_text(f"📲")
 
     if site_type == 'youtube':
@@ -255,7 +255,7 @@ async def download_video(callback_query: CallbackQuery, state: FSMContext):
         }
     elif site_type == 'instagram':
         ydl_opts = {
-            'format': 'bestvideo/best',
+            # 'format': 'bestvideo/best',
             'outtmpl': 'downloads/%(title)s.%(ext)s',
         }
     else:
@@ -267,7 +267,7 @@ async def download_video(callback_query: CallbackQuery, state: FSMContext):
         os.remove(video_file)
         await callback_query.message.edit_text(f"Video {quality} sent successfully!")
     except DownloadError as e:
-        proxy = 'https://47.251.43.115:33333'  
+        # proxy = 'https://47.251.43.115:33333'
         try:
             video_file = await try_download(site_type, ydl_opts, proxy=proxy)
             await bot.send_video(callback_query.from_user.id, types.FSInputFile(video_file))
