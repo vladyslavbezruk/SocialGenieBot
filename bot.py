@@ -148,16 +148,12 @@ async def cmd_coding(message: types.Message):
     keyboard = create_keyboard(buttons)
     await message.answer("Choose an option:", reply_markup=keyboard)
 
-# ------- Youtube download --------
+# ------- Download from YouTube, Instagram --------
 async def try_download(site_type, url, ydl_opts, proxy=None):
     if proxy:
         ydl_opts['proxy'] = proxy
 
-    if site_type == 'youtube':
-        with YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=True)
-            return ydl.prepare_filename(info_dict)
-    elif site_type == 'instagram':
+    if site_type == 'youtube' or site_type == 'instagram' or site_type == 'facebook':
         with YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=True)
             return ydl.prepare_filename(info_dict)
@@ -176,7 +172,8 @@ async def handle_youtube_link(message: types.Message, state: FSMContext):
 
     await message.reply("Choose option:", reply_markup=keyboard)
 
-@router.message(F.text.startswith("https://www.instagram.com/") | F.text.startswith("https://www.instagram.com/reel") | F.text.startswith("https://www.instagram.com/stories"))
+@router.message(F.text.startswith("https://www.instagram.com") | F.text.startswith("https://www.instagram.com/reel") |
+                F.text.startswith("https://www.instagram.com/stories") | F.text.startswith("https://www.instagram.com/p"))
 async def handle_instagram_link(message: types.Message, state: FSMContext):
     url = message.text
     await state.set_data({"url": url})
@@ -184,6 +181,21 @@ async def handle_instagram_link(message: types.Message, state: FSMContext):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎵 Download Audio 📲", callback_data="download_audio_instagram")],
         [InlineKeyboardButton(text="🎥 Download Video 📲", callback_data="download_video_instagram")]
+    ])
+
+    await message.reply("Choose option:", reply_markup=keyboard)
+
+@router.message(F.text.startswith("https://www.facebook.com") | F.text.startswith("https://www.facebook.com/watch") |
+                F.text.startswith("https://www.facebook.com/reel") | F.text.startswith("https://www.facebook.com/stories") |
+                F.text.startswith("https://www.fb.com") | F.text.startswith("https://www.fb.com/watch") |
+                F.text.startswith("https://www.fb.com/reel") | F.text.startswith("https://www.fb.com/stories"))
+async def handle_instagram_link(message: types.Message, state: FSMContext):
+    url = message.text
+    await state.set_data({"url": url})
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎵 Download Audio 📲", callback_data="download_audio_facebook")],
+        [InlineKeyboardButton(text="🎥 Download Video 📲", callback_data="download_video_facebook")]
     ])
 
     await message.reply("Choose option:", reply_markup=keyboard)
@@ -207,14 +219,13 @@ async def download_audio(callback_query: CallbackQuery, state: FSMContext):
     }
 
     try:
-
         audio_file = await try_download(site_type, url, ydl_opts, ydl_opts)
         await bot.send_audio(callback_query.from_user.id, types.FSInputFile(audio_file))
         os.remove(audio_file)
         await callback_query.message.edit_text("Sound has been successfully sent!")
     except DownloadError as e:
 
-        # proxy = 'https://135.148.100.78:48149'
+        proxy = 'https://135.148.100.78:48149'
         try:
             audio_file = await try_download(site_type, url, ydl_opts, proxy=proxy)
             await bot.send_audio(callback_query.from_user.id, types.FSInputFile(audio_file))
@@ -253,9 +264,8 @@ async def download_video(callback_query: CallbackQuery, state: FSMContext):
             'format': f'best[height<={quality}]',
             'outtmpl': 'downloads/%(title)s.%(ext)s',
         }
-    elif site_type == 'instagram':
+    elif site_type == 'instagram' or site_type == 'facebook':
         ydl_opts = {
-            # 'format': 'bestvideo/best',
             'outtmpl': 'downloads/%(title)s.%(ext)s',
         }
     else:
@@ -265,14 +275,24 @@ async def download_video(callback_query: CallbackQuery, state: FSMContext):
         video_file = await try_download(site_type, url, ydl_opts)
         await bot.send_video(callback_query.from_user.id, types.FSInputFile(video_file))
         os.remove(video_file)
-        await callback_query.message.edit_text(f"Video {quality} sent successfully!")
+
+        if quality != '':
+            await callback_query.message.edit_text(f"Video {quality} sent successfully!")
+        else:
+            await callback_query.message.edit_text(f"Video sent successfully!")
+
     except DownloadError as e:
-        # proxy = 'https://47.251.43.115:33333'
+        proxy = 'https://47.251.43.115:33333'
         try:
             video_file = await try_download(site_type, ydl_opts, proxy=proxy)
             await bot.send_video(callback_query.from_user.id, types.FSInputFile(video_file))
             os.remove(video_file)
-            await callback_query.message.edit_text(f"Video {quality} sent successfully through proxy!")
+
+            if quality != '':
+                await callback_query.message.edit_text(f"Video {quality} sent successfully through proxy!")
+            else:
+                await callback_query.message.edit_text(f"Video sent successfully through proxy!")
+
         except Exception as e:
             await callback_query.answer(f"Failed downloading video even through proxy: {str(e)}")
     except Exception as e:
